@@ -1,6 +1,4 @@
 
-http://54.66.187.243:8080/vocab-0.1/
-
 Java 7
 http://www.oracle.com/technetwork/java/javase/downloads/java-archive-downloads-javase7-521261.html
 
