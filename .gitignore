@@ -16,3 +16,4 @@ shared_src/
 .bundle
 target
 proposal/latex/tmp/
+db_and_tools/skos_files15*
