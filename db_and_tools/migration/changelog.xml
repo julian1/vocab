@@ -1641,4 +1641,88 @@ xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liqui
 			create index on _rdf_m( predicate );
 		</sql>
 	</changeSet>
+
+	<changeSet author="dnahodil" id="0045">
+
+		<sql>drop materialized view _rdf_m;</sql>
+		<dropView viewName="_rdf" />
+		<dropView viewName="_rdf_concept" />
+
+		<createView viewName="_rdf_concept">
+			select
+				c.subject as subject,
+				'skos:prefLabel' as predicate,
+				c.skos_preflabel as object
+			from _skos_concept c
+			union all
+			select
+				c.subject as subject,
+				'rdf:type' as predicate,
+				c.rdf_type as object
+			from _skos_concept c
+			union all
+			select
+				c.subject,
+				'skos:definition'::varchar as predicate,
+				c.skos_definition as object
+			from _skos_concept c
+			union all
+			-- BOTH ISSUED AND CREATED ?
+			select
+				c.subject,
+				'dcterms:issued'::varchar as predicate,
+				c.dcterms_issued::varchar as object
+			from _skos_concept c
+
+			union all
+			select
+				s.subject,
+				'skos:inScheme'::varchar as predicate,
+				s.object
+			from _skos_concept_skos_inscheme s
+
+			union all
+			select
+				b.subject,
+				'skos:broader'::varchar as predicate,
+				b.object
+			from _skos_concept_skos_broader b
+			union all
+			select
+				n.subject,
+				'skos:narrower'::varchar as predicate,
+				n.object
+			from _skos_concept_skos_narrower n
+			union all
+			select
+				c.subject,
+				'dcterms:created'::varchar as predicate,
+				c.dcterms_created::varchar as object
+			from _skos_concept c
+			union all
+			select
+				c.subject,
+				'dc:source'::varchar as predicate,
+				c.dc_source as object
+			from _skos_concept c
+			union all
+			select
+				c.subject,
+				'dc:publisher'::varchar as predicate,
+				c.dc_publisher as object
+			from _skos_concept c
+		</createView>
+
+		<createView viewName="_rdf">
+			select * from _rdf_concept_scheme
+			union all select * from _rdf_concept
+		</createView>
+
+		<sql>
+			create materialized view _rdf_m as select * from _rdf;
+			create index on _rdf_m( object );
+			create index on _rdf_m( subject );
+			create index on _rdf_m( predicate );
+		</sql>
+	</changeSet>
 </databaseChangeLog>
