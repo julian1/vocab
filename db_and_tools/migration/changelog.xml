@@ -1550,7 +1550,8 @@ xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liqui
 				-- should be issued ?
 				null as dcterms_created,
 				null as dc_source,
-				null as dc_publisher
+				null as dc_publisher,
+				null as dc_description
 			from classification_scheme_category c
 
 			union all
@@ -1570,7 +1571,12 @@ xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liqui
 					when rso.name is not null
 					then rso.name
 					else vro.name
-				end as dc_publisher
+				end as dc_publisher,
+				case
+					when vr.id = 3
+					then vt.ancillary_information
+					else null
+				end as dc_description
 			from vocabulary_term vt
 
 			left join vocabulary_register vr on vt.vocabulary_register_id = vr.id
@@ -1634,7 +1640,7 @@ xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liqui
 			select * from _rdf_concept_scheme
 			union all select * from _rdf_concept
 		</createView>
-		
+
 		<sql>
 			create materialized view _rdf_m as select * from _rdf;
 			create index on _rdf_m( object );
