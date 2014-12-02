@@ -1648,6 +1648,7 @@ xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liqui
 		<dropView viewName="_rdf" />
 		<dropView viewName="_rdf_concept" />
 
+
 		<createView viewName="_rdf_concept">
 			select
 				c.subject as subject,
@@ -1673,6 +1674,7 @@ xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liqui
 				'dcterms:issued'::varchar as predicate,
 				c.dcterms_issued::varchar as object
 			from _skos_concept c
+			where c.dcterms_issued is not null
 
 			union all
 			select
@@ -1705,12 +1707,14 @@ xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liqui
 				'dc:source'::varchar as predicate,
 				c.dc_source as object
 			from _skos_concept c
+			where c.dc_source is not null
 			union all
 			select
 				c.subject,
 				'dc:publisher'::varchar as predicate,
 				c.dc_publisher as object
 			from _skos_concept c
+			where c.dc_publisher is not null
 		</createView>
 
 		<createView viewName="_rdf">
