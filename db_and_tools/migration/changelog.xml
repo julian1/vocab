@@ -1566,7 +1566,7 @@ xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liqui
 				rs.citation_string as dc_source,
 				rso.name as dc_publisher,
 				case
-					when vr.id = 3
+					when vr.uid = 'http://vocab.aodn.org.au/def/platform'
 					then vt.ancillary_information
 					else null
 				end as dc_description
