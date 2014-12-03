@@ -1551,10 +1551,8 @@ xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liqui
 				null as dcterms_created,
 				null as dc_source,
 				null as dc_publisher,
-				null as dc_description,
-				csa.parent_classification_scheme_category_id is null as hasTopConcept
-			from contr_vocab_db.classification_scheme_category c
-			join contr_vocab_db.classification_scheme_association csa on csa.classification_scheme_category_id = c.id
+				null as dc_description
+			from classification_scheme_category c
 
 			union all
 			select
@@ -1571,8 +1569,7 @@ xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liqui
 					when vr.uid = 'http://vocab.aodn.org.au/def/platform'
 					then vt.ancillary_information
 					else null
-				end as dc_description,
-				false as hasTopConcept
+				end as dc_description
 			from vocabulary_term vt
 
 			left join vocabulary_register vr on vt.vocabulary_register_id = vr.id
