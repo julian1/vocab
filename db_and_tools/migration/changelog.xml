@@ -1801,7 +1801,54 @@ xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liqui
 		<sql>drop materialized view _rdf_m;</sql>
 		<dropView viewName="_rdf" />
 		<dropView viewName="_rdf_concept" />
+		<dropView viewName="_rdf_concept_scheme" />
 
+		<createView viewName="_rdf_concept_scheme">
+			select
+				s.subject as subject,
+				'rdf:type' as predicate,
+				s.rdf_type as object
+			from _skos_concept_scheme s
+			union all
+			select
+				s.subject,
+				'dcterms:issued' as predicate,
+				s.dcterms_issued::varchar as object
+			from _skos_concept_scheme s
+			where s.dcterms_issued is not null
+			union all
+			select
+				s.subject,
+				'dc:title' as predicate,
+				s.dc_title as object
+			from _skos_concept_scheme s
+			union all
+			select
+				s.subject,
+				'dc:description' as predicate,
+				s.dc_description as object
+			from _skos_concept_scheme s
+			union all
+			select
+				s.subject,
+				'dc:creator' as predicate,
+				s.dc_creator as object
+			from _skos_concept_scheme s
+			union all
+			select
+				s.subject,
+				'dc:publisher' as predicate,
+				s.dc_publisher as object
+			from _skos_concept_scheme s
+			union all
+			select
+				s.subject,
+				'dcterms:hasVersion' as predicate,
+				s.dcterms_hasversion as object
+			from _skos_concept_scheme s
+			where s.dcterms_hasversion is not null
+		</createView>
+		
 		<createView viewName="_rdf_concept">
 			select
 				c.subject as subject,
