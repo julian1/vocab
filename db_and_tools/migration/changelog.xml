@@ -1779,4 +1779,23 @@ xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liqui
 			create index on _rdf_m( predicate );
 		</sql>
 	</changeSet>
+
+	<changeSet author="dnahodil" id="0046">
+		<createView viewName="_skos_concept_skos_hastopconcept">
+			select
+				s.name as subject,
+				c.name as object
+			from classification_scheme_category c
+			join classification_scheme_association a on c.id = a.classification_scheme_category_id
+			join classification_scheme s on c.classification_scheme_id = s.id
+			where a.parent_classification_scheme_category_id is null
+		</createView>
+
+		<createView viewName="_skos_concept_skos_topconceptof">
+			select
+				object as subject,
+				subject as object
+			from _skos_concept_skos_hastopconcept
+		</createView>
+	</changeSet>
 </databaseChangeLog>
