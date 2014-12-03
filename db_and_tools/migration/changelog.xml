@@ -1849,7 +1849,7 @@ xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liqui
 			where s.dcterms_hasversion is not null
 			union all
 			select
-				s.subject
+				s.subject,
 				'skos:hasTopConcept' as predicate,
 				s.object
 			from _skos_concept_skos_hastopconcept s	

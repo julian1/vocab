@@ -5,6 +5,10 @@
     <skos:inScheme rdf:resource="<%= @object %>"/>
     <% end %>
 
+    <% for @object in query_rdf_objects( 'skos:topConceptOf', @concept) %>
+    <skos:topConceptOf rdf:resource="<%= @object %>"/>
+    <% end %>
+
     <% for @object in query_rdf_objects( 'skos:broader', @concept) %>
     <skos:broader rdf:resource="<%= @object %>"/>
     <% end %>
