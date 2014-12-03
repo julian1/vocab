@@ -1847,8 +1847,14 @@ xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liqui
 				s.dcterms_hasversion as object
 			from _skos_concept_scheme s
 			where s.dcterms_hasversion is not null
+			union all
+			select
+				s.subject
+				'skos:hasTopConcept' as predicate,
+				s.object
+			from _skos_concept_skos_hastopconcept s	
 		</createView>
-		
+
 		<createView viewName="_rdf_concept">
 			select
 				c.subject as subject,
@@ -1918,11 +1924,10 @@ xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liqui
 			where c.dc_publisher is not null
 			union all
 			select
-				c.subject,
-				'dc:publisher'::varchar as predicate,
-				c.dc_publisher as object
-			from _skos_concept c
-			where c.dc_publisher is not null
+				s.subject,
+				'skos:topConceptOf'::varchar as predicate,
+				s.object
+			from _skos_concept_skos_topconceptof s
 		</createView>
 
 		<createView viewName="_rdf">
