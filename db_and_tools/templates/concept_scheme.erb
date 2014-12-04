@@ -27,7 +27,7 @@
     </dc:publisher>
   <% end %>
 
- <% for @object in query_rdf_objects( 'dcterms:hasVersion', @conceptScheme ) %>
+  <% for @object in query_rdf_objects( 'dcterms:hasVersion', @conceptScheme ) %>
   <dcterms:hasVersion><%= @object %></dcterms:hasVersion>
   <% end %>
 
@@ -37,6 +37,9 @@
   <dcterms:issued><%= @object %></dcterms:issued>
   <% end %>
 
+  <% for @object in query_rdf_objects( 'skos:hasTopConcept', @conceptScheme ) %>
+  <skos:hasTopConcept rdf:resource="<%= @object %>"/>
+  <% end %>
 </skos:ConceptScheme>
 
 
