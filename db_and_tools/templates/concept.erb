@@ -1,12 +1,13 @@
 
 <skos:Concept rdf:about="<%= @concept %>">
 
-    <% for @object in query_rdf_objects( 'skos:inScheme', @concept) %>
-    <skos:inScheme rdf:resource="<%= @object %>"/>
-    <% end %>
-
     <% for @object in query_rdf_objects( 'skos:topConceptOf', @concept) %>
     <skos:topConceptOf rdf:resource="<%= @object %>"/>
+    <% end %>
+
+    <% if @conceptScheme.include?('ClassScheme') %>
+    <% for @object in query_rdf_objects( 'skos:inScheme', @concept) %>
+    <skos:inScheme rdf:resource="<%= @object %>"/>
     <% end %>
 
     <% for @object in query_rdf_objects( 'skos:broader', @concept) %>
@@ -15,6 +16,9 @@
 
     <% for @object in query_rdf_objects( 'skos:narrower', @concept) %>
     <skos:narrower rdf:resource="<%= @object %>"/>
+    <% end %>
+    <% else %>
+    <skos:inScheme rdf:resource="<%= @conceptScheme %>"/>
     <% end %>
 
     <% for @object in query_rdf_objects( 'skos:prefLabel', @concept) %>
