@@ -1,6 +1,3 @@
-
-<!-- TODO fix organisation element which is repeated twice -->
-
 <skos:ConceptScheme rdf:about="<%= @conceptScheme %>">
 
   <% for @object in query_rdf_objects( 'dc:title', @conceptScheme ) %>
@@ -21,9 +18,9 @@
 
   <% for @object in query_rdf_objects( 'dc:publisher', @conceptScheme ) %>
     <dc:publisher>
-      <foaf:Organisation>
+      <foaf:Person>
         <foaf:name><%= @object %></foaf:name>
-      </foaf:Organisation>
+      </foaf:Person>
     </dc:publisher>
   <% end %>
 
