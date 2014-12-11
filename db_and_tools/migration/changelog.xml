@@ -1936,6 +1936,13 @@ xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liqui
 				'skos:topConceptOf'::varchar as predicate,
 				s.object
 			from _skos_concept_skos_topconceptof s
+			union all
+			select
+				c.subject,
+				'dc:description'::varchar as predicate,
+				c.dc_description as object
+			from _skos_concept c
+			where c.dc_description is not null
 		</createView>
 
 		<createView viewName="_rdf">
