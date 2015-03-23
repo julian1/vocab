@@ -2516,8 +2516,6 @@ xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liqui
 			-- reference source organisation
 			left join organisation rso on rs.organisation_id = rso.id
 			-- vocabulary register organisation
-			-- Bad Data? or migration - contains references to value 52 but there is no corresponding organisation
-			-- in the original data
 			left join responsible_party rp on vr.owner_responsible_party_id = rp.id
 			left join organisation vro on rp.organisation_id = vro.id
 		</createView>
@@ -2541,7 +2539,6 @@ xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liqui
 				c.skos_definition as object
 			from _skos_concept c
 			union all
-			-- BOTH ISSUED AND CREATED ?
 			select
 				c.subject,
 				'dcterms:issued'::varchar as predicate,
