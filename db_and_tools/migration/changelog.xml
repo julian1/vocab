@@ -1563,21 +1563,13 @@ xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liqui
 				null as dcterms_issued,
 				-- should be issued ?
 				vt.date_added as dcterms_created,
-			case
-			when rs.citation_string is not null
-				then rs.citation_string
-				else vr.name
-			end as dc_source,
-			case
-			when rso.name is not null
-				then rso.name
-				else vro.name
-			end as dc_publisher,
-			case
-				when vr.uid = 'http://vocab.aodn.org.au/def/platform'
-				then vt.ancillary_information
-				else null
-			end as dc_description
+				rs.citation_string as dc_source,
+				rso.name as dc_publisher,
+				case
+					when vr.uid = 'http://vocab.aodn.org.au/def/platform'
+					then vt.ancillary_information
+					else null
+				end as dc_description
 			from vocabulary_term vt
 
 			left join vocabulary_register vr on vt.vocabulary_register_id = vr.id
@@ -1936,13 +1928,6 @@ xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liqui
 				'skos:topConceptOf'::varchar as predicate,
 				s.object
 			from _skos_concept_skos_topconceptof s
-			union all
-			select
-				c.subject,
-				'dc:description'::varchar as predicate,
-				c.dc_description as object
-			from _skos_concept c
-			where c.dc_description is not null
 		</createView>
 
 		<createView viewName="_rdf">
@@ -2468,6 +2453,8 @@ xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liqui
 	</changeSet>
 
 	<changeSet author="dnahodil and anguss" id="0049">
+	    <validCheckSum>7:fc93583f081e021473b71a0c5f8a8389</validCheckSum>
+
 		<sql>
 			drop materialized view _rdf_m;
 		</sql>
@@ -2499,13 +2486,21 @@ xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liqui
 				null as dcterms_issued,
 				-- should be issued ?
 				vt.date_added as dcterms_created,
-				rs.citation_string as dc_source,
-				rso.name as dc_publisher,
-				case
-					when vr.uid = 'http://vocab.aodn.org.au/def/platform'
-					then vt.ancillary_information
-					else null
-				end as dc_description
+			case
+			when rs.citation_string is not null
+				then rs.citation_string
+				else vr.name
+			end as dc_source,
+			case
+			when rso.name is not null
+				then rso.name
+				else vro.name
+			end as dc_publisher,
+			case
+				when vr.uid = 'http://vocab.aodn.org.au/def/platform'
+				then vt.ancillary_information
+				else null
+			end as dc_description
 			from vocabulary_term vt
 
 			left join vocabulary_register vr on vt.vocabulary_register_id = vr.id
@@ -2592,6 +2587,13 @@ xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liqui
 				'skos:topConceptOf'::varchar as predicate,
 				s.object
 			from _skos_concept_skos_topconceptof s
+			union all
+			select
+				c.subject,
+				'dc:description'::varchar as predicate,
+				c.dc_description as object
+			from _skos_concept c
+			where c.dc_description is not null
 		</createView>
 
 		<createView viewName="_rdf">
