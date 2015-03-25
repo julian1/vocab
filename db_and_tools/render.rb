@@ -150,7 +150,7 @@ if options[:template_file]
   conn = PG::Connection.open(
     :host =>    options[:host] || '127.0.0.1',
     :port =>    options[:port] || 5432,
-    :dbname =>  options[:database] || 'vocab',
+    :dbname =>  options[:database] || 'harvest',
     :user =>    options[:user] || 'contr_vocab_db',
     :password => options[:password] || 'contr_vocab_db'
   )

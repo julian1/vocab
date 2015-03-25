@@ -1,11 +1,10 @@
+#!/bin/bash
+#
+# Run vocab liquibase migration against database.  Refer liquibase.properties for default 
+# parameters.  Specify any override parameters on the command line e.g.
+# 
+# ./run_migrations.sh --url="jdbc:postgresql://localhost:5432/harvest?loginTimeout=1000&ssl=true&sslfactory=org.postgresql.ssl.NonValidatingFactory" \
+#      --password=xxxxxxxxxx
 
-#pushd migration
+java -jar liquibase.jar $@ update
 
-java -jar liquibase.jar update
-
-#      --changeLogFile=db.changelog.xml \
-#      --username=scott \
-#      --password=tiger \
-#      --url="jdbc:oracle:thin:@localhost:1521:oracle" \
-#      --classpath=/usr/share/java/postgresql-jdbc3-9.2.jar  \
-#      --driver=oracle.jdbc.OracleDriver \

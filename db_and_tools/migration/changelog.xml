@@ -4,6 +4,11 @@ xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
 xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
 xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-2.0.xsd">
 
+    <!-- Start with original pre-managed vocab schema (version 5) -->
+	<changeSet author="craigj" id="v5">
+        <sqlFile path="Vocab_db_table_creation_10092014.sql"/>
+        <sqlFile path="test_seb_vocab_v5.sql"/>
+	</changeSet>
 
 	<!-- TODO
 		- work out if we really need the trim.
