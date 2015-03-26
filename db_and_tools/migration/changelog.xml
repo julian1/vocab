@@ -2613,4 +2613,10 @@ xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liqui
 			create index on _rdf_m( predicate );
 		</sql>
 	</changeSet>
+	<changeSet author="smancini" id="0050">
+		<sql>
+			UPDATE contr_vocab_db.classification_scheme SET responsible_party_id = 2 WHERE responsible_party_id = 1;
+			UPDATE contr_vocab_db.vocabulary_term SET proposer_responsible_party_id = 2 WHERE proposer_responsible_party_id = 1;
+		</sql>	
+	</changeSet>
 </databaseChangeLog>
