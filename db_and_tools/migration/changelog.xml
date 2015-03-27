@@ -2619,4 +2619,83 @@ xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liqui
 			UPDATE contr_vocab_db.vocabulary_term SET proposer_responsible_party_id = 2 WHERE proposer_responsible_party_id = 1;
 		</sql>	
 	</changeSet>
+	
+	
+	<changeSet author="smancini" id="0051">
+	<!-- the user Sebastien Mancini was assigned to two different organisation IMOS and eMII.
+		 the user Sebastien will now only be assigned to eMII	-->	
+		<sql>
+			DELETE FROM contr_vocab_db.responsible_party WHERE id = 1;
+		</sql>	
+		
+	<!--	Fix issue with two categories not assigned to any high level classification
+			UV radiation should be linked to Physical-Atmosphere
+			backscattering should be linked to Physical-Water	-->	
+		<sql>		
+			INSERT INTO contr_vocab_db.classification_scheme_association (classification_scheme_category_id, parent_classification_scheme_category_id) VALUES
+			(47,56),
+			(48,53);
+		</sql>		
+		
+	</changeSet>
+	
+	<!-- 	Update in the platform vocab and classification
+			Same terms have been used to both describe a vocabulary term and a classification.
+			A term should be unique.
+			-->		
+	<changeSet author="smancini" id="0052">
+	<!-- 	Float should only be a category in the classification scheme and no longer used in the vocabulary term table	-->		
+		<sql>		
+			DELETE from contr_vocab_db.term_category_classification where vocabulary_term_id IN
+			(SELECT r.vocabulary_term_id
+			from contr_vocab_db.term_category_classification r
+			inner join contr_vocab_db.vocabulary_term p
+			on r.vocabulary_term_id = p.id
+			where p.name = 'float'
+			);
+			DELETE from contr_vocab_db.vocabulary_term where name = 'float';
+		</sql>		
+	<!-- 	Satellite should only be a category in the classification scheme and no longer used in the vocabulary term table	-->			
+		<sql>	
+			DELETE from contr_vocab_db.term_category_classification where vocabulary_term_id IN
+			(SELECT r.vocabulary_term_id
+			from contr_vocab_db.term_category_classification r
+			inner join contr_vocab_db.vocabulary_term p
+			on r.vocabulary_term_id = p.id
+			where p.name = 'satellite'
+			);
+			DELETE from contr_vocab_db.vocabulary_term where name = 'satellite';
+		</sql>		
+	<!-- 	Mooring should be an entry in the vocabulary term table.
+			The corresponding classification category should be called Mooring and buoy	-->			
+		<sql>	
+			UPDATE contr_vocab_db.classification_scheme_category SET label = 'Mooring and buoy' WHERE label = 'Mooring'
+		</sql>			
+
+	<!-- 	AUV will be used as the classification category
+			The vocabulary term will be modified so that it differs to the catageory-->	
+		<sql>	
+			UPDATE contr_vocab_db.vocabulary_term SET name = 'unmanned autonomous underwater vehicle' WHERE name = 'autonomous underwater vehicle'
+		</sql>	
+	<!-- 	Ship should be used as a vocabulary term and not as a category.
+			Instead the category should be called Vessel-->	
+		<sql>	
+			UPDATE contr_vocab_db.classification_scheme_category SET label = 'Vessel' WHERE label = 'Ship'
+		</sql>	
+	<!-- 	Definition of top level category for platform classification
+			This is useful when we produce a SKOS file so that it contains a reference to the top level concept-->			
+		<sql>	
+			INSERT INTO contr_vocab_db.classification_scheme_association (classification_scheme_category_id) VALUES
+			(35),
+			(36),
+			(37),
+			(39),
+			(40),
+			(41),
+			(42),
+			(43),
+			(44);
+		</sql>	
+		
+	</changeSet>		
 </databaseChangeLog>
