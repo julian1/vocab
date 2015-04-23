@@ -4,6 +4,11 @@ xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
 xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
 xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-2.0.xsd">
 
+    <!-- Start with original pre-managed vocab schema (version 5) -->
+	<changeSet author="craigj" id="v5">
+        <sqlFile path="Vocab_db_table_creation_10092014.sql"/>
+        <sqlFile path="test_seb_vocab_v5.sql"/>
+	</changeSet>
 
 	<!-- TODO
 		- work out if we really need the trim.
@@ -1531,10 +1536,1321 @@ xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liqui
         <renameColumn newColumnName="_version" oldColumnName="version" tableName="vocabulary_register"/>
     </changeSet>
 
+	<changeSet author="dnahodil and anguss" id="0044">
+		<sql>
+			drop materialized view _rdf_m;
+		</sql>
 
+		<dropView viewName="_rdf" />
+		<dropView viewName="_rdf_concept" />
+		<dropView viewName="_skos_concept" />
+		
+		<createView viewName="_skos_concept" replaceIfExists="true">
+			select
+				c.name as subject,
+				'skos:Concept'::varchar as rdf_type,
+				c.label as skos_preflabel,
+				c.description as skos_definition,
+				c.date_added as dcterms_issued,
+				-- should be issued ?
+				null as dcterms_created,
+				null as dc_source,
+				null as dc_publisher,
+				null as dc_description
+			from classification_scheme_category c
 
+			union all
+			select
+				vt.uid as subject,
+				'skos:Concept'::varchar as rdf_type,
+				vt.name as skos_preflabel,
+				vt.definition as skos_definition,
+				null as dcterms_issued,
+				-- should be issued ?
+				vt.date_added as dcterms_created,
+				rs.citation_string as dc_source,
+				rso.name as dc_publisher,
+				case
+					when vr.uid = 'http://vocab.aodn.org.au/def/platform'
+					then vt.ancillary_information
+					else null
+				end as dc_description
+			from vocabulary_term vt
 
+			left join vocabulary_register vr on vt.vocabulary_register_id = vr.id
+
+			-- should be left, since we explicitly test for null
+			left join reference_source rs on vt.reference_source_id = rs.id
+
+			-- reference source organisation
+			left join organisation rso on rs.organisation_id = rso.id
+			-- vocabulary register organisation
+			-- Bad Data? or migration - contains references to value 52 but there is no corresponding organisation
+			-- in the original data
+			left join responsible_party rp on vr.owner_responsible_party_id = rp.id
+			left join organisation vro on rp.organisation_id = vro.id
+		</createView>
+
+		<createView viewName="_rdf_concept">
+			select
+				c.subject as subject, 'skos:prefLabel' as predicate, c.skos_preflabel as object
+			from _skos_concept c
+			union all
+			select
+				c.subject as subject, 'rdf:type' as predicate, c.rdf_type
+			from _skos_concept c
+			union all
+			select
+				c.subject, 'skos:definition'::varchar, c.skos_definition
+			from _skos_concept c
+			union all
+			-- BOTH ISSUED AND CREATED ?
+			select
+				c.subject, 'dcterms:issued'::varchar, c.dcterms_issued::varchar
+			from _skos_concept c
+			union all
+			select
+				s.subject, 'skos:inScheme'::varchar, s.object
+			from _skos_concept_skos_inscheme s
+			union all
+			select
+				b.subject, 'skos:broader'::varchar, b.object
+			from _skos_concept_skos_broader b
+			union all
+			select
+				n.subject, 'skos:narrower'::varchar, n.object
+			from _skos_concept_skos_narrower n
+			union all
+			select
+				c.subject, 'dcterms:created'::varchar, c.dcterms_created::varchar
+			from _skos_concept c
+			union all
+			select
+				c.subject, 'dc:source'::varchar, c.dc_source
+			from _skos_concept c
+			union all
+			select
+				c.subject, 'dc:publisher'::varchar, c.dc_publisher
+			from _skos_concept c
+		</createView>
+
+		<createView viewName="_rdf">
+			select * from _rdf_concept_scheme
+			union all select * from _rdf_concept
+		</createView>
+
+		<sql>
+			create materialized view _rdf_m as select * from _rdf;
+			create index on _rdf_m( object );
+			create index on _rdf_m( subject );
+			create index on _rdf_m( predicate );
+		</sql>
+	</changeSet>
+
+	<changeSet author="dnahodil" id="0045">
+
+		<sql>drop materialized view _rdf_m;</sql>
+		<dropView viewName="_rdf" />
+		<dropView viewName="_rdf_concept" />
+		<dropView viewName="_rdf_concept_scheme" />
+
+		<createView viewName="_rdf_concept_scheme">
+			select
+				s.subject as subject,
+				'rdf:type' as predicate,
+				s.rdf_type as object
+			from _skos_concept_scheme s
+			union all
+			select
+				s.subject,
+				'dcterms:issued' as predicate,
+				s.dcterms_issued::varchar as object
+			from _skos_concept_scheme s
+			where s.dcterms_issued is not null
+			union all
+			select
+				s.subject,
+				'dc:title' as predicate,
+				s.dc_title as object
+			from _skos_concept_scheme s
+			union all
+			select
+				s.subject,
+				'dc:description' as predicate,
+				s.dc_description as object
+			from _skos_concept_scheme s
+			union all
+			select
+				s.subject,
+				'dc:creator' as predicate,
+				s.dc_creator as object
+			from _skos_concept_scheme s
+			union all
+			select
+				s.subject,
+				'dc:publisher' as predicate,
+				s.dc_publisher as object
+			from _skos_concept_scheme s
+			union all
+			select
+				s.subject,
+				'dcterms:hasVersion' as predicate,
+				s.dcterms_hasversion as object
+			from _skos_concept_scheme s
+			where s.dcterms_hasversion is not null
+		</createView>
+
+		<createView viewName="_rdf_concept">
+			select
+				c.subject as subject,
+				'skos:prefLabel' as predicate,
+				c.skos_preflabel as object
+			from _skos_concept c
+			union all
+			select
+				c.subject as subject,
+				'rdf:type' as predicate,
+				c.rdf_type as object
+			from _skos_concept c
+			union all
+			select
+				c.subject,
+				'skos:definition'::varchar as predicate,
+				c.skos_definition as object
+			from _skos_concept c
+			union all
+			-- BOTH ISSUED AND CREATED ?
+			select
+				c.subject,
+				'dcterms:issued'::varchar as predicate,
+				c.dcterms_issued::varchar as object
+			from _skos_concept c
+			where c.dcterms_issued is not null
+
+			union all
+			select
+				s.subject,
+				'skos:inScheme'::varchar as predicate,
+				s.object
+			from _skos_concept_skos_inscheme s
+
+			union all
+			select
+				b.subject,
+				'skos:broader'::varchar as predicate,
+				b.object
+			from _skos_concept_skos_broader b
+			union all
+			select
+				n.subject,
+				'skos:narrower'::varchar as predicate,
+				n.object
+			from _skos_concept_skos_narrower n
+			union all
+			select
+				c.subject,
+				'dcterms:created'::varchar as predicate,
+				c.dcterms_created::varchar as object
+			from _skos_concept c
+			where c.dcterms_created is not null
+			union all
+			select
+				c.subject,
+				'dc:source'::varchar as predicate,
+				c.dc_source as object
+			from _skos_concept c
+			where c.dc_source is not null
+			union all
+			select
+				c.subject,
+				'dc:publisher'::varchar as predicate,
+				c.dc_publisher as object
+			from _skos_concept c
+			where c.dc_publisher is not null
+		</createView>
+
+		<createView viewName="_rdf">
+			select * from _rdf_concept_scheme
+			union all select * from _rdf_concept
+		</createView>
+
+		<sql>
+			create materialized view _rdf_m as select * from _rdf;
+			create index on _rdf_m( object );
+			create index on _rdf_m( subject );
+			create index on _rdf_m( predicate );
+		</sql>
+	</changeSet>
+
+	<changeSet author="dnahodil" id="0046">
+		<createView viewName="_skos_concept_skos_hastopconcept">
+			select
+				s.name as subject,
+				c.name as object
+			from classification_scheme_category c
+			join classification_scheme_association a on c.id = a.classification_scheme_category_id
+			join classification_scheme s on c.classification_scheme_id = s.id
+			where a.parent_classification_scheme_category_id is null
+		</createView>
+
+		<createView viewName="_skos_concept_skos_topconceptof">
+			select
+				object as subject,
+				subject as object
+			from _skos_concept_skos_hastopconcept
+		</createView>
+	</changeSet>
+
+	<changeSet author="dnahodil" id="0047">
+
+		<sql>drop materialized view _rdf_m;</sql>
+		<dropView viewName="_rdf" />
+		<dropView viewName="_rdf_concept" />
+		<dropView viewName="_rdf_concept_scheme" />
+
+		<createView viewName="_rdf_concept_scheme">
+			select
+				s.subject as subject,
+				'rdf:type' as predicate,
+				s.rdf_type as object
+			from _skos_concept_scheme s
+			union all
+			select
+				s.subject,
+				'dcterms:issued' as predicate,
+				s.dcterms_issued::varchar as object
+			from _skos_concept_scheme s
+			where s.dcterms_issued is not null
+			union all
+			select
+				s.subject,
+				'dc:title' as predicate,
+				s.dc_title as object
+			from _skos_concept_scheme s
+			union all
+			select
+				s.subject,
+				'dc:description' as predicate,
+				s.dc_description as object
+			from _skos_concept_scheme s
+			union all
+			select
+				s.subject,
+				'dc:creator' as predicate,
+				s.dc_creator as object
+			from _skos_concept_scheme s
+			union all
+			select
+				s.subject,
+				'dc:publisher' as predicate,
+				s.dc_publisher as object
+			from _skos_concept_scheme s
+			union all
+			select
+				s.subject,
+				'dcterms:hasVersion' as predicate,
+				s.dcterms_hasversion as object
+			from _skos_concept_scheme s
+			where s.dcterms_hasversion is not null
+			union all
+			select
+				s.subject,
+				'skos:hasTopConcept' as predicate,
+				s.object
+			from _skos_concept_skos_hastopconcept s	
+		</createView>
+
+		<createView viewName="_rdf_concept">
+			select
+				c.subject as subject,
+				'skos:prefLabel' as predicate,
+				c.skos_preflabel as object
+			from _skos_concept c
+			union all
+			select
+				c.subject as subject,
+				'rdf:type' as predicate,
+				c.rdf_type as object
+			from _skos_concept c
+			union all
+			select
+				c.subject,
+				'skos:definition'::varchar as predicate,
+				c.skos_definition as object
+			from _skos_concept c
+			union all
+			-- BOTH ISSUED AND CREATED ?
+			select
+				c.subject,
+				'dcterms:issued'::varchar as predicate,
+				c.dcterms_issued::varchar as object
+			from _skos_concept c
+			where c.dcterms_issued is not null
+
+			union all
+			select
+				s.subject,
+				'skos:inScheme'::varchar as predicate,
+				s.object
+			from _skos_concept_skos_inscheme s
+
+			union all
+			select
+				b.subject,
+				'skos:broader'::varchar as predicate,
+				b.object
+			from _skos_concept_skos_broader b
+			union all
+			select
+				n.subject,
+				'skos:narrower'::varchar as predicate,
+				n.object
+			from _skos_concept_skos_narrower n
+			union all
+			select
+				c.subject,
+				'dcterms:created'::varchar as predicate,
+				c.dcterms_created::varchar as object
+			from _skos_concept c
+			where c.dcterms_created is not null
+			union all
+			select
+				c.subject,
+				'dc:source'::varchar as predicate,
+				c.dc_source as object
+			from _skos_concept c
+			where c.dc_source is not null
+			union all
+			select
+				c.subject,
+				'dc:publisher'::varchar as predicate,
+				c.dc_publisher as object
+			from _skos_concept c
+			where c.dc_publisher is not null
+			union all
+			select
+				s.subject,
+				'skos:topConceptOf'::varchar as predicate,
+				s.object
+			from _skos_concept_skos_topconceptof s
+		</createView>
+
+		<createView viewName="_rdf">
+			select * from _rdf_concept_scheme
+			union all select * from _rdf_concept
+		</createView>
+
+		<sql>
+			create materialized view _rdf_m as select * from _rdf;
+			create index on _rdf_m( object );
+			create index on _rdf_m( subject );
+			create index on _rdf_m( predicate );
+		</sql>
+	</changeSet>
+
+	<changeSet author="dnahodil" id="0048">
+		<sql>
+			-- Update platform UID by adding instance to the URL
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/65' WHERE uid = 'http://vocab.aodn.org.au/def/platform/65';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/66' WHERE uid = 'http://vocab.aodn.org.au/def/platform/66';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/67' WHERE uid = 'http://vocab.aodn.org.au/def/platform/67';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/68' WHERE uid = 'http://vocab.aodn.org.au/def/platform/68';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/69' WHERE uid = 'http://vocab.aodn.org.au/def/platform/69';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/71' WHERE uid = 'http://vocab.aodn.org.au/def/platform/71';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/72' WHERE uid = 'http://vocab.aodn.org.au/def/platform/72';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/73' WHERE uid = 'http://vocab.aodn.org.au/def/platform/73';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/74' WHERE uid = 'http://vocab.aodn.org.au/def/platform/74';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/99' WHERE uid = 'http://vocab.aodn.org.au/def/platform/99';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/100' WHERE uid = 'http://vocab.aodn.org.au/def/platform/100';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/101' WHERE uid = 'http://vocab.aodn.org.au/def/platform/101';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/102' WHERE uid = 'http://vocab.aodn.org.au/def/platform/102';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/103' WHERE uid = 'http://vocab.aodn.org.au/def/platform/103';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/104' WHERE uid = 'http://vocab.aodn.org.au/def/platform/104';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/105' WHERE uid = 'http://vocab.aodn.org.au/def/platform/105';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/106' WHERE uid = 'http://vocab.aodn.org.au/def/platform/106';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/107' WHERE uid = 'http://vocab.aodn.org.au/def/platform/107';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/108' WHERE uid = 'http://vocab.aodn.org.au/def/platform/108';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/109' WHERE uid = 'http://vocab.aodn.org.au/def/platform/109';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/110' WHERE uid = 'http://vocab.aodn.org.au/def/platform/110';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/111' WHERE uid = 'http://vocab.aodn.org.au/def/platform/111';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/112' WHERE uid = 'http://vocab.aodn.org.au/def/platform/112';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/113' WHERE uid = 'http://vocab.aodn.org.au/def/platform/113';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/114' WHERE uid = 'http://vocab.aodn.org.au/def/platform/114';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/115' WHERE uid = 'http://vocab.aodn.org.au/def/platform/115';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/116' WHERE uid = 'http://vocab.aodn.org.au/def/platform/116';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/117' WHERE uid = 'http://vocab.aodn.org.au/def/platform/117';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/118' WHERE uid = 'http://vocab.aodn.org.au/def/platform/118';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/119' WHERE uid = 'http://vocab.aodn.org.au/def/platform/119';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/120' WHERE uid = 'http://vocab.aodn.org.au/def/platform/120';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/121' WHERE uid = 'http://vocab.aodn.org.au/def/platform/121';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/122' WHERE uid = 'http://vocab.aodn.org.au/def/platform/122';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/123' WHERE uid = 'http://vocab.aodn.org.au/def/platform/123';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/124' WHERE uid = 'http://vocab.aodn.org.au/def/platform/124';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/125' WHERE uid = 'http://vocab.aodn.org.au/def/platform/125';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/126' WHERE uid = 'http://vocab.aodn.org.au/def/platform/126';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/127' WHERE uid = 'http://vocab.aodn.org.au/def/platform/127';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/128' WHERE uid = 'http://vocab.aodn.org.au/def/platform/128';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/129' WHERE uid = 'http://vocab.aodn.org.au/def/platform/129';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/130' WHERE uid = 'http://vocab.aodn.org.au/def/platform/130';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/131' WHERE uid = 'http://vocab.aodn.org.au/def/platform/131';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/132' WHERE uid = 'http://vocab.aodn.org.au/def/platform/132';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/133' WHERE uid = 'http://vocab.aodn.org.au/def/platform/133';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/134' WHERE uid = 'http://vocab.aodn.org.au/def/platform/134';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/135' WHERE uid = 'http://vocab.aodn.org.au/def/platform/135';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/136' WHERE uid = 'http://vocab.aodn.org.au/def/platform/136';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/137' WHERE uid = 'http://vocab.aodn.org.au/def/platform/137';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/138' WHERE uid = 'http://vocab.aodn.org.au/def/platform/138';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/139' WHERE uid = 'http://vocab.aodn.org.au/def/platform/139';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/140' WHERE uid = 'http://vocab.aodn.org.au/def/platform/140';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/141' WHERE uid = 'http://vocab.aodn.org.au/def/platform/141';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/142' WHERE uid = 'http://vocab.aodn.org.au/def/platform/142';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/143' WHERE uid = 'http://vocab.aodn.org.au/def/platform/143';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/144' WHERE uid = 'http://vocab.aodn.org.au/def/platform/144';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/145' WHERE uid = 'http://vocab.aodn.org.au/def/platform/145';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/146' WHERE uid = 'http://vocab.aodn.org.au/def/platform/146';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/147' WHERE uid = 'http://vocab.aodn.org.au/def/platform/147';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/148' WHERE uid = 'http://vocab.aodn.org.au/def/platform/148';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/149' WHERE uid = 'http://vocab.aodn.org.au/def/platform/149';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/150' WHERE uid = 'http://vocab.aodn.org.au/def/platform/150';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/151' WHERE uid = 'http://vocab.aodn.org.au/def/platform/151';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/152' WHERE uid = 'http://vocab.aodn.org.au/def/platform/152';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/153' WHERE uid = 'http://vocab.aodn.org.au/def/platform/153';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/154' WHERE uid = 'http://vocab.aodn.org.au/def/platform/154';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/155' WHERE uid = 'http://vocab.aodn.org.au/def/platform/155';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/156' WHERE uid = 'http://vocab.aodn.org.au/def/platform/156';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/157' WHERE uid = 'http://vocab.aodn.org.au/def/platform/157';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/158' WHERE uid = 'http://vocab.aodn.org.au/def/platform/158';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/159' WHERE uid = 'http://vocab.aodn.org.au/def/platform/159';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/160' WHERE uid = 'http://vocab.aodn.org.au/def/platform/160';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/161' WHERE uid = 'http://vocab.aodn.org.au/def/platform/161';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/162' WHERE uid = 'http://vocab.aodn.org.au/def/platform/162';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/163' WHERE uid = 'http://vocab.aodn.org.au/def/platform/163';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/164' WHERE uid = 'http://vocab.aodn.org.au/def/platform/164';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/165' WHERE uid = 'http://vocab.aodn.org.au/def/platform/165';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/166' WHERE uid = 'http://vocab.aodn.org.au/def/platform/166';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/167' WHERE uid = 'http://vocab.aodn.org.au/def/platform/167';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/168' WHERE uid = 'http://vocab.aodn.org.au/def/platform/168';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/169' WHERE uid = 'http://vocab.aodn.org.au/def/platform/169';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/170' WHERE uid = 'http://vocab.aodn.org.au/def/platform/170';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/171' WHERE uid = 'http://vocab.aodn.org.au/def/platform/171';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/172' WHERE uid = 'http://vocab.aodn.org.au/def/platform/172';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/173' WHERE uid = 'http://vocab.aodn.org.au/def/platform/173';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/174' WHERE uid = 'http://vocab.aodn.org.au/def/platform/174';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/175' WHERE uid = 'http://vocab.aodn.org.au/def/platform/175';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/176' WHERE uid = 'http://vocab.aodn.org.au/def/platform/176';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/177' WHERE uid = 'http://vocab.aodn.org.au/def/platform/177';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/178' WHERE uid = 'http://vocab.aodn.org.au/def/platform/178';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/179' WHERE uid = 'http://vocab.aodn.org.au/def/platform/179';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/180' WHERE uid = 'http://vocab.aodn.org.au/def/platform/180';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/181' WHERE uid = 'http://vocab.aodn.org.au/def/platform/181';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/182' WHERE uid = 'http://vocab.aodn.org.au/def/platform/182';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/183' WHERE uid = 'http://vocab.aodn.org.au/def/platform/183';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/184' WHERE uid = 'http://vocab.aodn.org.au/def/platform/184';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/185' WHERE uid = 'http://vocab.aodn.org.au/def/platform/185';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/186' WHERE uid = 'http://vocab.aodn.org.au/def/platform/186';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/187' WHERE uid = 'http://vocab.aodn.org.au/def/platform/187';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/188' WHERE uid = 'http://vocab.aodn.org.au/def/platform/188';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/189' WHERE uid = 'http://vocab.aodn.org.au/def/platform/189';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/190' WHERE uid = 'http://vocab.aodn.org.au/def/platform/190';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/191' WHERE uid = 'http://vocab.aodn.org.au/def/platform/191';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/192' WHERE uid = 'http://vocab.aodn.org.au/def/platform/192';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/193' WHERE uid = 'http://vocab.aodn.org.au/def/platform/193';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/194' WHERE uid = 'http://vocab.aodn.org.au/def/platform/194';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/195' WHERE uid = 'http://vocab.aodn.org.au/def/platform/195';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/196' WHERE uid = 'http://vocab.aodn.org.au/def/platform/196';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/197' WHERE uid = 'http://vocab.aodn.org.au/def/platform/197';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/198' WHERE uid = 'http://vocab.aodn.org.au/def/platform/198';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/199' WHERE uid = 'http://vocab.aodn.org.au/def/platform/199';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/200' WHERE uid = 'http://vocab.aodn.org.au/def/platform/200';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/201' WHERE uid = 'http://vocab.aodn.org.au/def/platform/201';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/202' WHERE uid = 'http://vocab.aodn.org.au/def/platform/202';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/203' WHERE uid = 'http://vocab.aodn.org.au/def/platform/203';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/204' WHERE uid = 'http://vocab.aodn.org.au/def/platform/204';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/205' WHERE uid = 'http://vocab.aodn.org.au/def/platform/205';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/206' WHERE uid = 'http://vocab.aodn.org.au/def/platform/206';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/207' WHERE uid = 'http://vocab.aodn.org.au/def/platform/207';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/208' WHERE uid = 'http://vocab.aodn.org.au/def/platform/208';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/209' WHERE uid = 'http://vocab.aodn.org.au/def/platform/209';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/210' WHERE uid = 'http://vocab.aodn.org.au/def/platform/210';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/211' WHERE uid = 'http://vocab.aodn.org.au/def/platform/211';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/212' WHERE uid = 'http://vocab.aodn.org.au/def/platform/212';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/213' WHERE uid = 'http://vocab.aodn.org.au/def/platform/213';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/214' WHERE uid = 'http://vocab.aodn.org.au/def/platform/214';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/215' WHERE uid = 'http://vocab.aodn.org.au/def/platform/215';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/216' WHERE uid = 'http://vocab.aodn.org.au/def/platform/216';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/217' WHERE uid = 'http://vocab.aodn.org.au/def/platform/217';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/218' WHERE uid = 'http://vocab.aodn.org.au/def/platform/218';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/219' WHERE uid = 'http://vocab.aodn.org.au/def/platform/219';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/220' WHERE uid = 'http://vocab.aodn.org.au/def/platform/220';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/221' WHERE uid = 'http://vocab.aodn.org.au/def/platform/221';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/222' WHERE uid = 'http://vocab.aodn.org.au/def/platform/222';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/223' WHERE uid = 'http://vocab.aodn.org.au/def/platform/223';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/224' WHERE uid = 'http://vocab.aodn.org.au/def/platform/224';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/225' WHERE uid = 'http://vocab.aodn.org.au/def/platform/225';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/226' WHERE uid = 'http://vocab.aodn.org.au/def/platform/226';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/227' WHERE uid = 'http://vocab.aodn.org.au/def/platform/227';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/228' WHERE uid = 'http://vocab.aodn.org.au/def/platform/228';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/229' WHERE uid = 'http://vocab.aodn.org.au/def/platform/229';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/230' WHERE uid = 'http://vocab.aodn.org.au/def/platform/230';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/231' WHERE uid = 'http://vocab.aodn.org.au/def/platform/231';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/232' WHERE uid = 'http://vocab.aodn.org.au/def/platform/232';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/233' WHERE uid = 'http://vocab.aodn.org.au/def/platform/233';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/234' WHERE uid = 'http://vocab.aodn.org.au/def/platform/234';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/235' WHERE uid = 'http://vocab.aodn.org.au/def/platform/235';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/236' WHERE uid = 'http://vocab.aodn.org.au/def/platform/236';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/238' WHERE uid = 'http://vocab.aodn.org.au/def/platform/238';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/239' WHERE uid = 'http://vocab.aodn.org.au/def/platform/239';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/240' WHERE uid = 'http://vocab.aodn.org.au/def/platform/240';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/241' WHERE uid = 'http://vocab.aodn.org.au/def/platform/241';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/242' WHERE uid = 'http://vocab.aodn.org.au/def/platform/242';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/243' WHERE uid = 'http://vocab.aodn.org.au/def/platform/243';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/244' WHERE uid = 'http://vocab.aodn.org.au/def/platform/244';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/245' WHERE uid = 'http://vocab.aodn.org.au/def/platform/245';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/246' WHERE uid = 'http://vocab.aodn.org.au/def/platform/246';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/247' WHERE uid = 'http://vocab.aodn.org.au/def/platform/247';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/248' WHERE uid = 'http://vocab.aodn.org.au/def/platform/248';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/249' WHERE uid = 'http://vocab.aodn.org.au/def/platform/249';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/250' WHERE uid = 'http://vocab.aodn.org.au/def/platform/250';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/252' WHERE uid = 'http://vocab.aodn.org.au/def/platform/252';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/253' WHERE uid = 'http://vocab.aodn.org.au/def/platform/253';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/254' WHERE uid = 'http://vocab.aodn.org.au/def/platform/254';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/255' WHERE uid = 'http://vocab.aodn.org.au/def/platform/255';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/256' WHERE uid = 'http://vocab.aodn.org.au/def/platform/256';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/257' WHERE uid = 'http://vocab.aodn.org.au/def/platform/257';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/258' WHERE uid = 'http://vocab.aodn.org.au/def/platform/258';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/259' WHERE uid = 'http://vocab.aodn.org.au/def/platform/259';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/260' WHERE uid = 'http://vocab.aodn.org.au/def/platform/260';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/261' WHERE uid = 'http://vocab.aodn.org.au/def/platform/261';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/262' WHERE uid = 'http://vocab.aodn.org.au/def/platform/262';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/263' WHERE uid = 'http://vocab.aodn.org.au/def/platform/263';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/264' WHERE uid = 'http://vocab.aodn.org.au/def/platform/264';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/265' WHERE uid = 'http://vocab.aodn.org.au/def/platform/265';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/266' WHERE uid = 'http://vocab.aodn.org.au/def/platform/266';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/267' WHERE uid = 'http://vocab.aodn.org.au/def/platform/267';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/268' WHERE uid = 'http://vocab.aodn.org.au/def/platform/268';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/269' WHERE uid = 'http://vocab.aodn.org.au/def/platform/269';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/270' WHERE uid = 'http://vocab.aodn.org.au/def/platform/270';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/271' WHERE uid = 'http://vocab.aodn.org.au/def/platform/271';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/272' WHERE uid = 'http://vocab.aodn.org.au/def/platform/272';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/273' WHERE uid = 'http://vocab.aodn.org.au/def/platform/273';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/274' WHERE uid = 'http://vocab.aodn.org.au/def/platform/274';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/275' WHERE uid = 'http://vocab.aodn.org.au/def/platform/275';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/277' WHERE uid = 'http://vocab.aodn.org.au/def/platform/277';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/278' WHERE uid = 'http://vocab.aodn.org.au/def/platform/278';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/279' WHERE uid = 'http://vocab.aodn.org.au/def/platform/279';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/280' WHERE uid = 'http://vocab.aodn.org.au/def/platform/280';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/281' WHERE uid = 'http://vocab.aodn.org.au/def/platform/281';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/282' WHERE uid = 'http://vocab.aodn.org.au/def/platform/282';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/283' WHERE uid = 'http://vocab.aodn.org.au/def/platform/283';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/284' WHERE uid = 'http://vocab.aodn.org.au/def/platform/284';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/285' WHERE uid = 'http://vocab.aodn.org.au/def/platform/285';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/287' WHERE uid = 'http://vocab.aodn.org.au/def/platform/287';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/288' WHERE uid = 'http://vocab.aodn.org.au/def/platform/288';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/289' WHERE uid = 'http://vocab.aodn.org.au/def/platform/289';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/290' WHERE uid = 'http://vocab.aodn.org.au/def/platform/290';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/291' WHERE uid = 'http://vocab.aodn.org.au/def/platform/291';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/293' WHERE uid = 'http://vocab.aodn.org.au/def/platform/293';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/294' WHERE uid = 'http://vocab.aodn.org.au/def/platform/294';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/295' WHERE uid = 'http://vocab.aodn.org.au/def/platform/295';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/296' WHERE uid = 'http://vocab.aodn.org.au/def/platform/296';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/297' WHERE uid = 'http://vocab.aodn.org.au/def/platform/297';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/298' WHERE uid = 'http://vocab.aodn.org.au/def/platform/298';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/299' WHERE uid = 'http://vocab.aodn.org.au/def/platform/299';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/300' WHERE uid = 'http://vocab.aodn.org.au/def/platform/300';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/301' WHERE uid = 'http://vocab.aodn.org.au/def/platform/301';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/302' WHERE uid = 'http://vocab.aodn.org.au/def/platform/302';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/303' WHERE uid = 'http://vocab.aodn.org.au/def/platform/303';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/304' WHERE uid = 'http://vocab.aodn.org.au/def/platform/304';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/305' WHERE uid = 'http://vocab.aodn.org.au/def/platform/305';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/306' WHERE uid = 'http://vocab.aodn.org.au/def/platform/306';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/307' WHERE uid = 'http://vocab.aodn.org.au/def/platform/307';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/308' WHERE uid = 'http://vocab.aodn.org.au/def/platform/308';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/309' WHERE uid = 'http://vocab.aodn.org.au/def/platform/309';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/310' WHERE uid = 'http://vocab.aodn.org.au/def/platform/310';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/311' WHERE uid = 'http://vocab.aodn.org.au/def/platform/311';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/312' WHERE uid = 'http://vocab.aodn.org.au/def/platform/312';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/313' WHERE uid = 'http://vocab.aodn.org.au/def/platform/313';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/314' WHERE uid = 'http://vocab.aodn.org.au/def/platform/314';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/315' WHERE uid = 'http://vocab.aodn.org.au/def/platform/315';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/316' WHERE uid = 'http://vocab.aodn.org.au/def/platform/316';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/317' WHERE uid = 'http://vocab.aodn.org.au/def/platform/317';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/318' WHERE uid = 'http://vocab.aodn.org.au/def/platform/318';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/319' WHERE uid = 'http://vocab.aodn.org.au/def/platform/319';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/320' WHERE uid = 'http://vocab.aodn.org.au/def/platform/320';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/321' WHERE uid = 'http://vocab.aodn.org.au/def/platform/321';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/322' WHERE uid = 'http://vocab.aodn.org.au/def/platform/322';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/323' WHERE uid = 'http://vocab.aodn.org.au/def/platform/323';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/324' WHERE uid = 'http://vocab.aodn.org.au/def/platform/324';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/325' WHERE uid = 'http://vocab.aodn.org.au/def/platform/325';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/326' WHERE uid = 'http://vocab.aodn.org.au/def/platform/326';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/327' WHERE uid = 'http://vocab.aodn.org.au/def/platform/327';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/328' WHERE uid = 'http://vocab.aodn.org.au/def/platform/328';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/329' WHERE uid = 'http://vocab.aodn.org.au/def/platform/329';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/330' WHERE uid = 'http://vocab.aodn.org.au/def/platform/330';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/331' WHERE uid = 'http://vocab.aodn.org.au/def/platform/331';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/332' WHERE uid = 'http://vocab.aodn.org.au/def/platform/332';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/333' WHERE uid = 'http://vocab.aodn.org.au/def/platform/333';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/334' WHERE uid = 'http://vocab.aodn.org.au/def/platform/334';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/335' WHERE uid = 'http://vocab.aodn.org.au/def/platform/335';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/336' WHERE uid = 'http://vocab.aodn.org.au/def/platform/336';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/337' WHERE uid = 'http://vocab.aodn.org.au/def/platform/337';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/338' WHERE uid = 'http://vocab.aodn.org.au/def/platform/338';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/339' WHERE uid = 'http://vocab.aodn.org.au/def/platform/339';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/340' WHERE uid = 'http://vocab.aodn.org.au/def/platform/340';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/341' WHERE uid = 'http://vocab.aodn.org.au/def/platform/341';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/342' WHERE uid = 'http://vocab.aodn.org.au/def/platform/342';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/343' WHERE uid = 'http://vocab.aodn.org.au/def/platform/343';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/344' WHERE uid = 'http://vocab.aodn.org.au/def/platform/344';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/345' WHERE uid = 'http://vocab.aodn.org.au/def/platform/345';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/346' WHERE uid = 'http://vocab.aodn.org.au/def/platform/346';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/347' WHERE uid = 'http://vocab.aodn.org.au/def/platform/347';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/453' WHERE uid = 'http://vocab.aodn.org.au/def/platform/453';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/454' WHERE uid = 'http://vocab.aodn.org.au/def/platform/454';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/455' WHERE uid = 'http://vocab.aodn.org.au/def/platform/455';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/456' WHERE uid = 'http://vocab.aodn.org.au/def/platform/456';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/457' WHERE uid = 'http://vocab.aodn.org.au/def/platform/457';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/458' WHERE uid = 'http://vocab.aodn.org.au/def/platform/458';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/459' WHERE uid = 'http://vocab.aodn.org.au/def/platform/459';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/460' WHERE uid = 'http://vocab.aodn.org.au/def/platform/460';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/461' WHERE uid = 'http://vocab.aodn.org.au/def/platform/461';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/462' WHERE uid = 'http://vocab.aodn.org.au/def/platform/462';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/463' WHERE uid = 'http://vocab.aodn.org.au/def/platform/463';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/464' WHERE uid = 'http://vocab.aodn.org.au/def/platform/464';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/465' WHERE uid = 'http://vocab.aodn.org.au/def/platform/465';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/466' WHERE uid = 'http://vocab.aodn.org.au/def/platform/466';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/467' WHERE uid = 'http://vocab.aodn.org.au/def/platform/467';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/468' WHERE uid = 'http://vocab.aodn.org.au/def/platform/468';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/469' WHERE uid = 'http://vocab.aodn.org.au/def/platform/469';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/470' WHERE uid = 'http://vocab.aodn.org.au/def/platform/470';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/471' WHERE uid = 'http://vocab.aodn.org.au/def/platform/471';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/472' WHERE uid = 'http://vocab.aodn.org.au/def/platform/472';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/473' WHERE uid = 'http://vocab.aodn.org.au/def/platform/473';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/474' WHERE uid = 'http://vocab.aodn.org.au/def/platform/474';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/475' WHERE uid = 'http://vocab.aodn.org.au/def/platform/475';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/560' WHERE uid = 'http://vocab.aodn.org.au/def/platform/560';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/561' WHERE uid = 'http://vocab.aodn.org.au/def/platform/561';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/726' WHERE uid = 'http://vocab.aodn.org.au/def/platform/726';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/platform/instance/727' WHERE uid = 'http://vocab.aodn.org.au/def/platform/727';
+
+			-- Update instrument UID by adding type to the URL
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/instrument/type/33' WHERE uid = 'http://vocab.aodn.org.au/def/instrument/33';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/instrument/type/37' WHERE uid = 'http://vocab.aodn.org.au/def/instrument/37';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/instrument/type/38' WHERE uid = 'http://vocab.aodn.org.au/def/instrument/38';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/instrument/type/39' WHERE uid = 'http://vocab.aodn.org.au/def/instrument/39';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/instrument/type/490' WHERE uid = 'http://vocab.aodn.org.au/def/instrument/490';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/instrument/type/531' WHERE uid = 'http://vocab.aodn.org.au/def/instrument/531';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/instrument/type/532' WHERE uid = 'http://vocab.aodn.org.au/def/instrument/532';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/instrument/type/537' WHERE uid = 'http://vocab.aodn.org.au/def/instrument/537';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/instrument/type/538' WHERE uid = 'http://vocab.aodn.org.au/def/instrument/538';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/instrument/type/545' WHERE uid = 'http://vocab.aodn.org.au/def/instrument/545';
+			UPDATE contr_vocab_db.vocabulary_term SET uid = 'http://vocab.aodn.org.au/def/instrument/type/553' WHERE uid = 'http://vocab.aodn.org.au/def/instrument/553';
+
+			-- Update reference source id for all vocab term
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = NULL WHERE uid = 'http://vocab.aodn.org.au/def/parameter/75';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = NULL WHERE uid = 'http://vocab.aodn.org.au/def/parameter/77';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = NULL WHERE uid = 'http://vocab.aodn.org.au/def/parameter/84';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = NULL WHERE uid = 'http://vocab.aodn.org.au/def/parameter/90';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = NULL WHERE uid = 'http://vocab.aodn.org.au/def/parameter/91';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = NULL WHERE uid = 'http://vocab.aodn.org.au/def/parameter/92';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = NULL WHERE uid = 'http://vocab.aodn.org.au/def/parameter/94';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = NULL WHERE uid = 'http://vocab.aodn.org.au/def/parameter/97';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 3 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L06/current/16';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/121';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/123';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/124';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/181';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/22';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/301';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/355';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/356';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/LAB40';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/POS17';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/379';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/186';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/130';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 6 WHERE uid = 'http://vocab.nerc.ac.uk/collection/P01/current/CHLTMASS';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 6 WHERE uid = 'http://vocab.nerc.ac.uk/collection/P01/current/CNDCZZ01';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 6 WHERE uid = 'http://vocab.nerc.ac.uk/collection/P01/current/CHUMSS01';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 6 WHERE uid = 'http://vocab.nerc.ac.uk/collection/P01/current/SVELXXXX';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 6 WHERE uid = 'http://vocab.nerc.ac.uk/collection/P01/current/TURBXXXX';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 6 WHERE uid = 'http://vocab.nerc.ac.uk/collection/P01/current/LRZAZZZZ';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 6 WHERE uid = 'http://vocab.nerc.ac.uk/collection/P01/current/INFLTF01';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 6 WHERE uid = 'http://vocab.nerc.ac.uk/collection/P01/current/CWETZZ01';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 6 WHERE uid = 'http://vocab.nerc.ac.uk/collection/P01/current/EWDAZZ01';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 6 WHERE uid = 'http://vocab.nerc.ac.uk/collection/P01/current/ESSAZZ01';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 6 WHERE uid = 'http://vocab.nerc.ac.uk/collection/P01/current/MDMAP014';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 6 WHERE uid = 'http://vocab.nerc.ac.uk/collection/P01/current/GCMXZZ01';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 6 WHERE uid = 'http://vocab.nerc.ac.uk/collection/P01/current/GTCAZZ01';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 6 WHERE uid = 'http://vocab.nerc.ac.uk/collection/P01/current/GWDRZZ01';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 6 WHERE uid = 'http://vocab.nerc.ac.uk/collection/P01/current/GSPRZZ01';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 6 WHERE uid = 'http://vocab.nerc.ac.uk/collection/P01/current/GSZZXXXX';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 6 WHERE uid = 'http://vocab.nerc.ac.uk/collection/P01/current/XCO2DRAT';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 6 WHERE uid = 'http://vocab.nerc.ac.uk/collection/P01/current/FCO2WTAT';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 6 WHERE uid = 'http://vocab.nerc.ac.uk/collection/P01/current/XCO2WBDY';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 6 WHERE uid = 'http://vocab.nerc.ac.uk/collection/P01/current/FCO2XXXX';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0036';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0668';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0625';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0674';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0673';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0696';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0191';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0667';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0724';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0705';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0190';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0198';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0689';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0446';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0719';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0720';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0260';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0195';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0704';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0672';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0741';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0081';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0127';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0126';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0677';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0671';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0726';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0725';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0083';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0666';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0193';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0120';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0722';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0723';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0680';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0670';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0727';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0707';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0712';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0640';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0215';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/NETT0044';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0267';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0266';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0018';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0445';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0017';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0054';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0369';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0490';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0617';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0100';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0047';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0040';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0173';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0528';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0663';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0023';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0019';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0053';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0042';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0268';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0020';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/NETT0026';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0037';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0121';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0676';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0675';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0669';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0684';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0685';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0679';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0688';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0687';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0682';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0683';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0706';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0708';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0702';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0703';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0721';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0728';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0729';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0730';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0731';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0058';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0710';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0733';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0732';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0416';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0181';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0665';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 2 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L22/current/TOOL0105';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/304';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/382';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/FFES';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/350';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/385';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/310';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/311';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/51';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/53';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/54';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/60';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/63';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/LAB02';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/50';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/151';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/64';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/90';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/306';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/81';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/82';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/312';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/LAB16';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/LAB08';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/LAB09';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/LAB05';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/LAB06';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/LAB07';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/305';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/65';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/69';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/23';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/61';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/68';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/103';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/LAB21';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/24';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/LAB15';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/LAB17';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/LAB18';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/LAB19';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/LAB22';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/LAB10';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/LAB20';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/157';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/377';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/LAB25';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/91';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/384';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/62';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/LAB39';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/111';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 1 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L05/current/308';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 6 WHERE uid = 'http://vocab.nerc.ac.uk/collection/P01/current/LWRDZZ01';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 6 WHERE uid = 'http://vocab.nerc.ac.uk/collection/P01/current/ERWSZZ01';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 6 WHERE uid = 'http://vocab.nerc.ac.uk/collection/P01/current/NUMVALES';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 6 WHERE uid = 'http://vocab.nerc.ac.uk/collection/P01/current/ERWDZZ01';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 3 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L06/current/74';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 3 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L06/current/27';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 3 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L06/current/70';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 3 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L06/current/37';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 3 WHERE uid = 'http://vocab.nerc.ac.uk/collection/L06/current/42';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 6 WHERE uid = 'http://vocab.nerc.ac.uk/collection/P01/current/FLUOZZZZ';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 6 WHERE uid = 'http://vocab.nerc.ac.uk/collection/P01/current/AHSFZZ01';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 6 WHERE uid = 'http://vocab.nerc.ac.uk/collection/P01/current/ALLOXXPX';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 6 WHERE uid = 'http://vocab.nerc.ac.uk/collection/P01/current/PERDXXXX';
+			UPDATE contr_vocab_db.vocabulary_term SET reference_source_id = 6 WHERE uid = 'http://vocab.nerc.ac.uk/collection/P01/current/FUCXZZZZ';
+
+			-- Update organisation_id used in the reference_source table
+			UPDATE contr_vocab_db.reference_source SET organisation_id = 4 WHERE citation_string = '(L051) SeaDataNet device categories';
+			UPDATE contr_vocab_db.reference_source SET organisation_id = 4 WHERE citation_string = '(L221) SeaVoX Device Catalogue';
+			UPDATE contr_vocab_db.reference_source SET organisation_id = 4 WHERE citation_string = '(L061) SeaVoX Platform Categories';
+			UPDATE contr_vocab_db.reference_source SET organisation_id = 4 WHERE citation_string = '(P173) Partnership for Observation of the Global Ocean ships of interest';
+			UPDATE contr_vocab_db.reference_source SET organisation_id = 4 WHERE citation_string = '(P011) BODC Parameter Usage Vocabulary';
+		</sql>
+	</changeSet>
+
+	<changeSet author="dnahodil and anguss" id="0049">
+	    <validCheckSum>7:fc93583f081e021473b71a0c5f8a8389</validCheckSum>
+
+		<sql>
+			drop materialized view _rdf_m;
+		</sql>
+
+		<dropView viewName="_rdf" />
+		<dropView viewName="_rdf_concept" />
+		<dropView viewName="_skos_concept" />
+		
+		<createView viewName="_skos_concept" replaceIfExists="true">
+			select
+				c.name as subject,
+				'skos:Concept'::varchar as rdf_type,
+				c.label as skos_preflabel,
+				c.description as skos_definition,
+				c.date_added as dcterms_issued,
+				-- should be issued ?
+				null as dcterms_created,
+				null as dc_source,
+				null as dc_publisher,
+				null as dc_description
+			from classification_scheme_category c
+
+			union all
+			select
+				vt.uid as subject,
+				'skos:Concept'::varchar as rdf_type,
+				vt.name as skos_preflabel,
+				vt.definition as skos_definition,
+				null as dcterms_issued,
+				-- should be issued ?
+				vt.date_added as dcterms_created,
+			case
+			when rs.citation_string is not null
+				then rs.citation_string
+				else vr.name
+			end as dc_source,
+			case
+			when rso.name is not null
+				then rso.name
+				else vro.name
+			end as dc_publisher,
+			case
+				when vr.uid = 'http://vocab.aodn.org.au/def/platform'
+				then vt.ancillary_information
+				else null
+			end as dc_description
+			from vocabulary_term vt
+
+			left join vocabulary_register vr on vt.vocabulary_register_id = vr.id
+
+			-- should be left, since we explicitly test for null
+			left join reference_source rs on vt.reference_source_id = rs.id
+
+			-- reference source organisation
+			left join organisation rso on rs.organisation_id = rso.id
+			-- vocabulary register organisation
+			left join responsible_party rp on vr.owner_responsible_party_id = rp.id
+			left join organisation vro on rp.organisation_id = vro.id
+		</createView>
+
+		<createView viewName="_rdf_concept">
+			select
+				c.subject as subject,
+				'skos:prefLabel' as predicate,
+				c.skos_preflabel as object
+			from _skos_concept c
+			union all
+			select
+				c.subject as subject,
+				'rdf:type' as predicate,
+				c.rdf_type as object
+			from _skos_concept c
+			union all
+			select
+				c.subject,
+				'skos:definition'::varchar as predicate,
+				c.skos_definition as object
+			from _skos_concept c
+			union all
+			select
+				c.subject,
+				'dcterms:issued'::varchar as predicate,
+				c.dcterms_issued::varchar as object
+			from _skos_concept c
+			where c.dcterms_issued is not null
+
+			union all
+			select
+				s.subject,
+				'skos:inScheme'::varchar as predicate,
+				s.object
+			from _skos_concept_skos_inscheme s
+
+			union all
+			select
+				b.subject,
+				'skos:broader'::varchar as predicate,
+				b.object
+			from _skos_concept_skos_broader b
+			union all
+			select
+				n.subject,
+				'skos:narrower'::varchar as predicate,
+				n.object
+			from _skos_concept_skos_narrower n
+			union all
+			select
+				c.subject,
+				'dcterms:created'::varchar as predicate,
+				c.dcterms_created::varchar as object
+			from _skos_concept c
+			where c.dcterms_created is not null
+			union all
+			select
+				c.subject,
+				'dc:source'::varchar as predicate,
+				c.dc_source as object
+			from _skos_concept c
+			where c.dc_source is not null
+			union all
+			select
+				c.subject,
+				'dc:publisher'::varchar as predicate,
+				c.dc_publisher as object
+			from _skos_concept c
+			where c.dc_publisher is not null
+			union all
+			select
+				s.subject,
+				'skos:topConceptOf'::varchar as predicate,
+				s.object
+			from _skos_concept_skos_topconceptof s
+			union all
+			select
+				c.subject,
+				'dc:description'::varchar as predicate,
+				c.dc_description as object
+			from _skos_concept c
+			where c.dc_description is not null
+		</createView>
+
+		<createView viewName="_rdf">
+			select * from _rdf_concept_scheme
+			union all select * from _rdf_concept
+		</createView>
+
+		<sql>
+			create materialized view _rdf_m as select * from _rdf;
+			create index on _rdf_m( object );
+			create index on _rdf_m( subject );
+			create index on _rdf_m( predicate );
+		</sql>
+	</changeSet>
+	<changeSet author="smancini" id="0050">
+		<sql>
+			UPDATE contr_vocab_db.classification_scheme SET responsible_party_id = 2 WHERE responsible_party_id = 1;
+			UPDATE contr_vocab_db.vocabulary_term SET proposer_responsible_party_id = 2 WHERE proposer_responsible_party_id = 1;
+		</sql>	
+	</changeSet>
+	
+	
+	<changeSet author="smancini" id="0051">
+	<!-- the user Sebastien Mancini was assigned to two different organisation IMOS and eMII.
+		 the user Sebastien will now only be assigned to eMII	-->	
+		<sql>
+			DELETE FROM contr_vocab_db.responsible_party WHERE id = 1;
+		</sql>	
+		
+	<!--	Fix issue with two categories not assigned to any high level classification
+			UV radiation should be linked to Physical-Atmosphere
+			backscattering should be linked to Physical-Water	-->	
+		<sql>		
+			INSERT INTO contr_vocab_db.classification_scheme_association (classification_scheme_category_id, parent_classification_scheme_category_id) VALUES
+			(47,56),
+			(48,53);
+		</sql>		
+		
+	</changeSet>
+	
+	<!-- 	Update in the platform vocab and classification
+			Same terms have been used to both describe a vocabulary term and a classification.
+			A term should be unique.
+			-->		
+	<changeSet author="smancini" id="0052">
+	<!-- 	Float should only be a category in the classification scheme and no longer used in the vocabulary term table	-->		
+		<sql>		
+			DELETE from contr_vocab_db.term_category_classification where vocabulary_term_id IN
+			(SELECT r.vocabulary_term_id
+			from contr_vocab_db.term_category_classification r
+			inner join contr_vocab_db.vocabulary_term p
+			on r.vocabulary_term_id = p.id
+			where p.name = 'float'
+			);
+			DELETE from contr_vocab_db.vocabulary_term where name = 'float';
+		</sql>		
+	<!-- 	Satellite should only be a category in the classification scheme and no longer used in the vocabulary term table	-->			
+		<sql>	
+			DELETE from contr_vocab_db.term_category_classification where vocabulary_term_id IN
+			(SELECT r.vocabulary_term_id
+			from contr_vocab_db.term_category_classification r
+			inner join contr_vocab_db.vocabulary_term p
+			on r.vocabulary_term_id = p.id
+			where p.name = 'satellite'
+			);
+			DELETE from contr_vocab_db.vocabulary_term where name = 'satellite';
+		</sql>		
+	<!-- 	Mooring should be an entry in the vocabulary term table.
+			The corresponding classification category should be called Mooring and buoy	-->			
+		<sql>	
+			UPDATE contr_vocab_db.classification_scheme_category SET label = 'Mooring and buoy' WHERE label = 'Mooring'
+		</sql>			
+
+	<!-- 	AUV will be used as the classification category
+			The vocabulary term will be modified so that it differs to the catageory-->	
+		<sql>	
+			UPDATE contr_vocab_db.vocabulary_term SET name = 'unmanned autonomous underwater vehicle' WHERE name = 'autonomous underwater vehicle'
+		</sql>	
+	<!-- 	Ship should be used as a vocabulary term and not as a category.
+			Instead the category should be called Vessel-->	
+		<sql>	
+			UPDATE contr_vocab_db.classification_scheme_category SET label = 'Vessel' WHERE label = 'Ship'
+		</sql>	
+	<!-- 	Definition of top level category for platform classification
+			This is useful when we produce a SKOS file so that it contains a reference to the top level concept-->			
+		<sql>	
+			INSERT INTO contr_vocab_db.classification_scheme_association (classification_scheme_category_id) VALUES
+			(35),
+			(36),
+			(37),
+			(39),
+			(40),
+			(41),
+			(42),
+			(43),
+			(44);
+		</sql>	
+		
+	</changeSet>
+		<!-- 	Fix issues in the platform vocab and platform classification
+			so that the SKOS files generated from the database will be ingested more easily PoolParty
+			-->	
+	<changeSet author="smancini" id="0053">	
+	<!-- 	Update URIs in the classification_scheme_table to match 
+			the name pattern expected by PoolParty-->	
+		<sql>	
+			UPDATE contr_vocab_db.classification_scheme SET name = 'http://vocab.aodn.org.au/platform_classes/1' WHERE name = 'http://vocab.aodn.org.au/def/ClassScheme/platform1';
+		</sql>	
+	<!-- 	Update URIs in the classification_scheme_category_table to match 
+			the name pattern expected by PoolParty-->	
+		<sql>	
+			UPDATE contr_vocab_db.classification_scheme_category SET name = replace(name, '/def/ClassScheme/platform1/Category/', '/platform_classes/category/');
+		</sql>	
+	<!-- 	Update URIs in the vocabulary_register_table to match 
+			the name pattern expected by PoolParty-->	
+		<sql>	
+			UPDATE contr_vocab_db.vocabulary_register SET uid = 'http://vocab.aodn.org.au/platform/1' WHERE uid = 'http://vocab.aodn.org.au/def/platform';			
+		</sql>			
+	<!-- 	Update URIs in the vocabulary_term_table to match 
+			the name pattern expected by PoolParty-->	
+		<sql>	
+			UPDATE contr_vocab_db.vocabulary_term SET uid = replace(uid::text, '/def/platform/instance/', '/platform/entity/')::character(110);			
+		</sql>	
+	<!-- 	Clean the association_type_id in the internal_associated_terms table 
+			problem with instruments wrongly assigned to the platform association type-->	
+		<sql>	
+			UPDATE contr_vocab_db.internal_associated_terms SET association_type_id = 3 WHERE subject_vocabulary_term_id = 806;
+			UPDATE contr_vocab_db.internal_associated_terms SET association_type_id = 3 WHERE subject_vocabulary_term_id = 807;
+			UPDATE contr_vocab_db.internal_associated_terms SET association_type_id = 3 WHERE subject_vocabulary_term_id = 809;
+			UPDATE contr_vocab_db.internal_associated_terms SET association_type_id = 3 WHERE subject_vocabulary_term_id = 810;
+			UPDATE contr_vocab_db.internal_associated_terms SET association_type_id = 3 WHERE subject_vocabulary_term_id = 811;
+			UPDATE contr_vocab_db.internal_associated_terms SET association_type_id = 3 WHERE subject_vocabulary_term_id = 812;
+			UPDATE contr_vocab_db.internal_associated_terms SET association_type_id = 3 WHERE subject_vocabulary_term_id = 813;
+			UPDATE contr_vocab_db.internal_associated_terms SET association_type_id = 3 WHERE subject_vocabulary_term_id = 814;
+			UPDATE contr_vocab_db.internal_associated_terms SET association_type_id = 3 WHERE subject_vocabulary_term_id = 815;
+			UPDATE contr_vocab_db.internal_associated_terms SET association_type_id = 3 WHERE subject_vocabulary_term_id = 816;
+			UPDATE contr_vocab_db.internal_associated_terms SET association_type_id = 3 WHERE subject_vocabulary_term_id = 817;
+			UPDATE contr_vocab_db.internal_associated_terms SET association_type_id = 3 WHERE subject_vocabulary_term_id = 818;
+			UPDATE contr_vocab_db.internal_associated_terms SET association_type_id = 3 WHERE subject_vocabulary_term_id = 819;
+			UPDATE contr_vocab_db.internal_associated_terms SET association_type_id = 3 WHERE subject_vocabulary_term_id = 820;
+			UPDATE contr_vocab_db.internal_associated_terms SET association_type_id = 3 WHERE subject_vocabulary_term_id = 821;
+			UPDATE contr_vocab_db.internal_associated_terms SET association_type_id = 3 WHERE subject_vocabulary_term_id = 822;		
+		</sql>	
+	<!-- 	Creation of a new platform called small boat in order to respond to  
+			several queries from users about the difficulty to understand self-propelled boat term-->	
+		<sql>
+			INSERT INTO contr_vocab_db.vocabulary_term (name, uid, short_name, ancillary_information, definition, alternative_term_expression, date_added, proposal_term_status, term_status, date_status_amended, term_notes, proposer_responsible_party_id, vocabulary_register_id, added_by_person_id, vocabulary_type_id) VALUES
+			('small boat', 'http://vocab.aodn.org.au/platform/entity/823',
+			'',
+			'', 'A small self-propelled platform operating on the surface of the water column in unpredictable locations that is smaller than a ship but too large to easily remove from the water.', '', '2015-04-14 00:00:00', 'final',
+			'valid', '2015-04-14 00:00:00', '', (
+			SELECT r.id 
+			from contr_vocab_db.responsible_party r 
+			inner join contr_vocab_db.person p 
+			on r.person_id = p.id 
+			Where p.name like '%Mancini%'
+			), (
+			SELECT r.id 
+			from contr_vocab_db.vocabulary_register r 
+			Where r.uid like '%platform%'
+			) , (
+			SELECT r.id 
+			from contr_vocab_db.person r 
+			Where r.name like '%Mancini%'
+			),  (
+			SELECT r.id 
+			from contr_vocab_db.vocabulary_type r 
+			Where r.name like '%Platform%'
+			)
+			)
+		</sql>	
+	<!-- 	 Add exactmatch statement for the new vocabulary term small boat 
+			and BODC term self propelled boat-->	
+		<sql>	
+			INSERT INTO contr_vocab_db.external_associated_terms (uid, vocabulary_term_id, association_type_id) VALUES
+			('http://vocab.nerc.ac.uk/collection/L06/current/37', 
+			(
+			SELECT r.id 
+			from contr_vocab_db.vocabulary_term r 
+			Where r.name like '%small boat%'
+			)
+			, (
+			SELECT r.id 
+			from contr_vocab_db.association_type r 
+			Where r.name like '%exactMatch%'
+			)
+			)		
+		</sql>
+	<!-- 	Remove self propelled boat from the term_category_classification table 
+			-->	
+		<sql>	
+			DELETE from contr_vocab_db.term_category_classification where vocabulary_term_id IN
+			(SELECT r.vocabulary_term_id
+			from contr_vocab_db.term_category_classification r
+			inner join contr_vocab_db.vocabulary_term p
+			on r.vocabulary_term_id = p.id
+			where p.name = 'self-propelled boat'
+			);		
+		</sql>	
+	<!-- 	 Add small boat in the term_category_classification table
+			-->	
+		<sql>	
+			INSERT INTO contr_vocab_db.term_category_classification (classification_scheme_category_id, vocabulary_term_id) VALUES
+			(
+			(SELECT r.id 
+			from contr_vocab_db.classification_scheme_category r 
+			Where r.label = 'Vessel'
+			), (
+			SELECT r.id 
+			from contr_vocab_db.vocabulary_term r 
+			Where r.name = 'small boat'
+			)
+			)		
+		</sql>			
+	<!-- 	Missing entries in the internal_associated_terms table for the following mooring 
+			Bass strait calibration site mooring-->	
+		<sql>	
+			INSERT INTO contr_vocab_db.internal_associated_terms (subject_vocabulary_term_id, object_vocabulary_term_id, association_type_id) VALUES
+			(
+			(SELECT r.id 
+			from contr_vocab_db.vocabulary_term r 
+			Where r.name like '%Bass Strait Calibration%'
+			), (
+			SELECT r.id 
+			from contr_vocab_db.vocabulary_term r 
+			Where r.name like '%subsurface mooring%'
+			), (
+			SELECT r.id 
+			from contr_vocab_db.association_type r 
+			Where r.name = 'isInstanceOf'
+			)
+			)		
+		</sql>	
+	<!-- 	 Missing entries in the internal_associated_terms table for the following mooring 
+			Storm Bay calibration site mooring-->	
+		<sql>	
+			INSERT INTO contr_vocab_db.internal_associated_terms (subject_vocabulary_term_id, object_vocabulary_term_id, association_type_id) VALUES
+			(
+			(SELECT r.id 
+			from contr_vocab_db.vocabulary_term r 
+			Where r.name like '%Storm Bay Calibration%'
+			), (
+			SELECT r.id 
+			from contr_vocab_db.vocabulary_term r 
+			Where r.name like '%subsurface mooring%'
+			), (
+			SELECT r.id 
+			from contr_vocab_db.association_type r 
+			Where r.name = 'isInstanceOf'
+			)
+			)		
+		</sql>	
+	
+	</changeSet>	
 </databaseChangeLog>
-
-
-

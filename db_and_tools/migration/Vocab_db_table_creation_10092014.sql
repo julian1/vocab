@@ -1,28 +1,3 @@
-DROP TABLE if exists contr_vocab_db.vocabulary_register_table CASCADE;
-DROP TABLE if exists contr_vocab_db.person_table CASCADE;
--- DROP TABLE contr_vocab_db.vocabulary_owner_table CASCADE;
-DROP TABLE if exists contr_vocab_db.register_owner_table CASCADE;
--- DROP TABLE contr_vocab_db.vocabulary_manager_table CASCADE;
-DROP TABLE if exists contr_vocab_db.register_manager_table CASCADE;
-DROP TABLE if exists contr_vocab_db.term_proposer_table CASCADE;
-DROP TABLE if exists contr_vocab_db.vocabulary_type_table CASCADE;
-DROP TABLE if exists contr_vocab_db.organisation_name_table CASCADE;
-DROP TABLE if exists contr_vocab_db.organisation_synonym_table CASCADE;
-DROP TABLE if exists contr_vocab_db.affiliation_type_table CASCADE;
-DROP TABLE if exists contr_vocab_db.person_organisational_affiliation_table CASCADE;
-DROP TABLE if exists contr_vocab_db.reference_source_table CASCADE;
-DROP TABLE if exists contr_vocab_db.association_type_table CASCADE;
-DROP TABLE if exists contr_vocab_db.classification_scheme_table CASCADE;
-DROP TABLE if exists contr_vocab_db.classification_scheme_category_table CASCADE;
-DROP TABLE if exists contr_vocab_db.vocabulary_term_table CASCADE;
-DROP TABLE if exists contr_vocab_db.subject_term_table CASCADE;
-DROP TABLE if exists contr_vocab_db.object_term_table CASCADE;
-DROP TABLE if exists contr_vocab_db.internal_associated_terms_table CASCADE;
-DROP TABLE if exists contr_vocab_db.external_associated_terms_table CASCADE;
-DROP TABLE if exists contr_vocab_db.classification_scheme_association_table CASCADE;
-DROP TABLE if exists contr_vocab_db.term_category_classification_table CASCADE;
-DROP TABLE if exists contr_vocab_db.amendment_table CASCADE;
-
 -----------------------------------------------------------------------------------------------------------------------------------------
 -- Vocabulary_Register table
 CREATE TABLE contr_vocab_db.vocabulary_register_table 
@@ -351,4 +326,3 @@ CONSTRAINT amendment_table_fkey4 FOREIGN KEY (register_name) REFERENCES contr_vo
 ALTER TABLE contr_vocab_db.amendment_table 
   OWNER TO contr_vocab_db;
 
-SET DATESTYLE TO PostgreSQL,European;
